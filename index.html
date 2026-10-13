@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <title>TU Dresden Campus Navigator</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <style>
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f0f2f5; }
+
+        #map { width: 100%; height: 100%; z-index: 1; }
+
+        .search-container {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            right: 12px;
+            z-index: 1000;
+        }
+        .search-box {
+            width: 100%;
+            height: 48px;
+            padding: 12px 16px;
+            font-size: 16px;
+            border: none;
+            border-radius: 12px;
+            background: #ffffff;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+            outline: none;
+        }
+        .search-results {
+            margin-top: 6px;
+            background: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+            max-height: 280px;
+            overflow-y: auto;
+            display: none;
+        }
+        .search-item {
+            padding: 14px 16px;
+            border-bottom: 1px solid #f0f0f0;
+            font-size: 15px;
+            cursor: pointer;
+        }
+        .search-item:active { background: #f0f4f8; }
+
+        .gps-btn {
+            position: absolute;
+            bottom: 24px;
+            right: 16px;
+            z-index: 999;
+            width: 48px;
+            height: 48px;
+            border-radius: 24px;
+            background: #002557;
+            color: #ffffff;
+            border: none;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        /* Map Popup button styling */
+        .leaflet-popup-content {
+            margin: 12px 14px !important;
+            line-height: 1.4 !important;
+        }
+        .popup-btn {
+            display: block;
+            text-align: center;
+            padding: 8px 12px;
+            margin-top: 8px;
+            background: #002557;
+            color: #ffffff !important;
+            border-radius: 6px;
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: 600;
+        }
+        .popup-btn:active {
+            background: #001838;
+        }
+
+        /* Bottom Sheet */
+        .sheet {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: -100%;
+            z-index: 1001;
+            background: #ffffff;
+            border-radius: 20px 20px 0 0;
+            box-shadow: 0 -6px 25px rgba(0,0,0,0.25);
+            padding: 20px;
+            transition: bottom 0.3s cubic-bezier(0.1, 0.9, 0.2, 1);
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .sheet.active { bottom: 0; }
+        .sheet-handle {
+            width: 40px;
+            height: 5px;
+            background: #ccc;
+            border-radius: 3px;
+            margin: -8px auto 16px auto;
+        }
+        .sheet-title { margin: 0 0 4px 0; font-size: 20px; color: #002557; }
+        .sheet-subtitle { font-size: 14px; color: #666; margin-bottom: 16px; font-weight: 500; }
+        .sheet-meta { background: #f8f9fa; border-radius: 10px; padding: 12px; margin-bottom: 16px; font-size: 14px; line-height: 1.5; color: #333; }
+        
+        .floor-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+        .floor-btn {
+            display: block;
+            text-align: center;
+            padding: 10px 0;
+            background: #eef2f6;
+            color: #002557;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        .floor-btn:active { background: #d0dde9; }
+
+        .btn-external {
+            display: block;
+            text-align: center;
+            width: 100%;
+            padding: 14px;
+            background: #002557;
+            color: #ffffff;
+            border-radius: 12px;
+            text-decoration: none;
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        #file-warning {
+            display: none;
+            position: absolute;
+            top: 70px;
+            left: 12px;
+            right: 12px;
+            background: #ffffff;
+            color: #991b1b;
+            padding: 16px;
+            border-radius: 12px;
+            font-size: 14px;
+            z-index: 2000;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+            border-left: 5px solid #dc2626;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="search-container">
+        <input type="text" id="searchInput" class="search-box" placeholder="Gebäude oder Kürzel suchen (z.B. APB, HSZ)...">
+        <div id="searchResults" class="search-results"></div>
+    </div>
+
+    <div id="file-warning">
+        <b>⚠️ campus_database.json nicht automatisch geladen</b><br>
+        <span style="color:#444; font-size:13px;">Wähle die Datei manuell aus oder ziehe sie per Drag & Drop hierher:</span><br><br>
+        <input type="file" id="manualFileInput" accept=".json">
+    </div>
+
+    <button class="gps-btn" id="gpsBtn">📍</button>
+
+    <div id="map"></div>
+
+    <div id="detailSheet" class="sheet">
+        <div class="sheet-handle"></div>
+        <h2 id="sheetTitle" class="sheet-title">Gebäude</h2>
+        <div id="sheetSubtitle" class="sheet-subtitle">Kürzel: ---</div>
+        
+        <div id="sheetMeta" class="sheet-meta"></div>
+
+        <div style="font-weight:600; font-size:15px; margin-bottom:8px; color:#333;">Verfügbare Etagenpläne:</div>
+        <div id="sheetFloors" class="floor-grid"></div>
+
+        <a id="sheetExternal" class="btn-external" href="#" target="_blank">Offizielle Detailseite öffnen</a>
+    </div>
+
+    <script>
+        let db = { buildings: {}, search_index: [] };
+        let buildingLayers = {};
+
+        // 1. Initialize Map
+        const map = L.map('map', { zoomControl: false }).setView([51.0284, 13.732], 16);
+
+        // 2. Tile Layer
+        L.tileLayer('https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png', {
+            maxZoom: 20,
+            attribution: '&copy; OpenStreetMap France'
+        }).addTo(map);
+
+        // 3. Load Database
+        function initData(data) {
+            db = data;
+            document.getElementById('file-warning').style.display = 'none';
+            renderBuildings();
+        }
+
+        fetch('campus_database.json')
+            .then(r => {
+                if (!r.ok) throw new Error("File not found on server root");
+                return r.json();
+            })
+            .then(initData)
+            .catch(() => {
+                document.getElementById('file-warning').style.display = 'block';
+            });
+
+        document.getElementById('manualFileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                try {
+                    const parsed = JSON.parse(evt.target.result);
+                    initData(parsed);
+                } catch(err) {
+                    alert("Ungültiges JSON-Format");
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        function renderBuildings() {
+            Object.values(db.buildings).forEach(b => {
+                if (!b.polygons || b.polygons.length === 0) return;
+
+                const isSlub = b.code.startsWith('SLUB');
+                const fillColor = isSlub ? '#a29de2' : '#6961d0';
+                const strokeColor = isSlub ? '#7068c2' : '#322a8c';
+
+                // On-map Popup content showing the official page button
+                const popupContent = `
+                    <div style="font-family:sans-serif; text-align:center;">
+                        <b style="font-size:15px; color:#002557;">${b.name}</b><br>
+                        <span style="font-size:12px; color:#666;">Kürzel: <b>${b.code}</b></span><br>
+                        <a href="${b.overview_url}" target="_blank" class="popup-btn">
+                            🌐 Offizielle Seite öffnen
+                        </a>
+                    </div>
+                `;
+
+                const polyGroup = [];
+                b.polygons.forEach(ring => {
+                    const poly = L.polygon(ring, {
+                        color: strokeColor,
+                        weight: 1.5,
+                        fillColor: fillColor,
+                        fillOpacity: 0.65
+                    }).addTo(map);
+
+                    // Bind popup to outline
+                    poly.bindPopup(popupContent);
+
+                    // When clicking outline: open popup and show bottom sheet
+                    poly.on('click', (e) => {
+                        openBuildingSheet(b.code, false);
+                    });
+
+                    polyGroup.push(poly);
+                });
+
+                buildingLayers[b.code] = polyGroup;
+            });
+        }
+
+        function openBuildingSheet(code, flyTo = true) {
+            const b = db.buildings[code];
+            if (!b) return;
+
+            document.getElementById('sheetTitle').textContent = b.name;
+            document.getElementById('sheetSubtitle').textContent = `Kürzel: ${b.code}`;
+            
+            let metaHtml = `<b>Adresse:</b> ${b.address}`;
+            if (b.building_no) metaHtml += `<br><b>Gebäude-Nr:</b> ${b.building_no}`;
+            if (b.year) metaHtml += `<br><b>Baujahr:</b> ${b.year}`;
+            document.getElementById('sheetMeta').innerHTML = metaHtml;
+
+            const floorContainer = document.getElementById('sheetFloors');
+            floorContainer.innerHTML = '';
+            if (b.floors && b.floors.length > 0) {
+                b.floors.forEach(f => {
+                    const a = document.createElement('a');
+                    a.className = 'floor-btn';
+                    a.href = f.url;
+                    a.target = '_blank';
+                    a.textContent = f.title;
+                    floorContainer.appendChild(a);
+                });
+            } else {
+                floorContainer.innerHTML = '<span style="font-size:13px; color:#888;">Keine Etagenpläne verzeichnet</span>';
+            }
+
+            document.getElementById('sheetExternal').href = b.overview_url;
+            document.getElementById('detailSheet').classList.add('active');
+
+            if (flyTo && buildingLayers[code]) {
+                const group = L.featureGroup(buildingLayers[code]);
+                map.fitBounds(group.getBounds(), { maxZoom: 18, paddingBottomRight: [0, 200] });
+                // Open popup on first polygon
+                buildingLayers[code][0].openPopup();
+            }
+        }
+
+        // Close sheet when tapping on empty map
+        map.on('click', (e) => {
+            // Only close if we didn't click on a polygon
+            if (!e.originalEvent._stopped) {
+                document.getElementById('detailSheet').classList.remove('active');
+            }
+        });
+
+        // 4. Autocomplete Search
+        const searchInput = document.getElementById('searchInput');
+        const searchResults = document.getElementById('searchResults');
+
+        searchInput.addEventListener('input', () => {
+            const q = searchInput.value.trim().toLowerCase();
+            if (q.length < 2) {
+                searchResults.style.display = 'none';
+                return;
+            }
+
+            const matches = db.search_index.filter(item => 
+                item.code.toLowerCase().includes(q) || 
+                item.title.toLowerCase().includes(q)
+            ).slice(0, 6);
+
+            if (matches.length === 0) {
+                searchResults.style.display = 'none';
+                return;
+            }
+
+            searchResults.innerHTML = matches.map(m => `
+                <div class="search-item" onclick="selectSearch('${m.code}')">
+                    <b>${m.code}</b> — ${m.title.replace(m.code + ' - ', '')}
+                </div>
+            `).join('');
+            searchResults.style.display = 'block';
+        });
+
+        window.selectSearch = function(code) {
+            searchResults.style.display = 'none';
+            searchInput.value = '';
+            openBuildingSheet(code, true);
+        };
+
+        // 5. GPS Locator
+        document.getElementById('gpsBtn').onclick = () => {
+            map.locate({ setView: true, maxZoom: 17 });
+        };
+        map.on('locationfound', e => {
+            L.circleMarker(e.latlng, { radius: 8, color: '#002557', fillOpacity: 0.9 }).addTo(map)
+             .bindPopup("Dein Standort").openPopup();
+        });
+    </script>
+</body>
+</html>
